@@ -13,7 +13,10 @@ st.title("🎶 Zapptain America — Audio Fingerprinting App")
 st.markdown("Identify songs using frequency-domain fingerprints and offset histograms.")
 
 # Index status
-num_songs = len(set(song for list_val in SONG_DB.values() for song, _ in list_val))
+if isinstance(SONG_DB, dict) and 'songs' in SONG_DB:
+    num_songs = len(SONG_DB['songs'])
+else:
+    num_songs = len(set(song for list_val in SONG_DB.values() for song, _ in list_val))
 st.info(f"**Database status:** Successfully indexed {num_songs} songs.")
 
 tabs = st.tabs(["Single-Clip Mode", "Batch Mode"])
