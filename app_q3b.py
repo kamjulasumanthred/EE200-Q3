@@ -1,6 +1,9 @@
 import os
-import streamlit as st
+import tempfile
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import streamlit as st
 import pandas as pd
 from app import SONG_DB, match_query, process_batch, MIN_MATCHING_HASHES
 
@@ -27,10 +30,11 @@ with tabs[0]:
         st.audio(audio_file)
         
         if st.button("Identify Song"):
-            # Save uploaded file temporarily to run matching
-            temp_path = f"temp_{audio_file.name}"
-            with open(temp_path, "wb") as f:
-                f.write(audio_file.getbuffer())
+            # Save uploaded file temporarily to run matching in a safe temp dir
+            suffix = os.path.splitext(audio_file.name)[1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                temp_file.write(audio_file.getbuffer())
+                temp_path = temp_file.name
             
             with st.spinner("Analyzing audio clip..."):
                 song, score, fig1, fig2, fig3 = match_query(temp_path, db=SONG_DB, use_pairs=True, generate_plots=True)
@@ -38,6 +42,7 @@ with tabs[0]:
             # Clean up temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
             
             # Show results
             if song != "No Match Found":
@@ -74,9 +79,10 @@ with tabs[1]:
             
             with st.spinner("Processing batch..."):
                 for uploaded_file in batch_files:
-                    temp_path = f"temp_batch_{uploaded_file.name}"
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
+                    suffix = os.path.splitext(uploaded_file.name)[1]
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                        temp_file.write(uploaded_file.getbuffer())
+                        temp_path = temp_file.name
                     
                     # Attach orig_name attribute so process_batch uses it
                     class FileWrapper:
