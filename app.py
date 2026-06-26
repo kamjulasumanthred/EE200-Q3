@@ -242,26 +242,43 @@ def _offset_histogram_scores(query_hashes, db):
         values_arr = db['values']
         song_list = db['songs']
         
+        # Pre-allocate packed hash values and query offsets
+        hash_ints = []
+        q_offsets = []
         for hash_val, q_t_offset in query_hashes:
             try:
-                # Convert string key "f1_f2_dt" to packed 32-bit integer
                 f1, f2, dt = map(int, hash_val.split('_'))
                 hash_int = (f1 & 0x3FF) | ((f2 & 0x3FF) << 10) | ((dt & 0xFFF) << 20)
+                hash_ints.append(hash_int)
+                q_offsets.append(q_t_offset)
             except ValueError:
                 continue
                 
-            left = np.searchsorted(keys_arr, hash_int, side='left')
-            right = np.searchsorted(keys_arr, hash_int, side='right')
+        if not hash_ints:
+            return matches
             
-            for packed_match in values_arr[left:right]:
-                # Unpack matches: song_id (6 bits) | offset (26 bits)
-                song_id = packed_match >> 26
-                db_t_offset = packed_match & 0x3FFFFFF
-                db_song = song_list[song_id]
-                
-                delta_t = db_t_offset - q_t_offset
-                hist = matches.setdefault(db_song, {})
-                hist[delta_t] = hist.get(delta_t, 0) + 1
+        hash_ints = np.array(hash_ints, dtype=np.uint32)
+        q_offsets = np.array(q_offsets, dtype=np.uint32)
+        
+        # Vectorized binary search for all query hashes
+        left_indices = np.searchsorted(keys_arr, hash_ints, side='left')
+        right_indices = np.searchsorted(keys_arr, hash_ints, side='right')
+        
+        # Populate match histogram
+        for i in range(len(hash_ints)):
+            l = left_indices[i]
+            r = right_indices[i]
+            if l < r:
+                q_t_offset = q_offsets[i]
+                packed_matches = values_arr[l:r]
+                for packed_match in packed_matches:
+                    song_id = packed_match >> 26
+                    db_t_offset = packed_match & 0x3FFFFFF
+                    db_song = song_list[song_id]
+                    
+                    delta_t = db_t_offset - q_t_offset
+                    hist = matches.setdefault(db_song, {})
+                    hist[delta_t] = hist.get(delta_t, 0) + 1
     else:
         # Fallback to the original dictionary lookup
         for hash_val, q_t_offset in query_hashes:
@@ -271,6 +288,7 @@ def _offset_histogram_scores(query_hashes, db):
                 hist[delta_t] = hist.get(delta_t, 0) + 1
                 
     return matches
+
 
 
 
