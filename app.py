@@ -235,12 +235,43 @@ def index_database(db_path=DB_PATH, use_pairs=True):
 def _offset_histogram_scores(query_hashes, db):
     """Record delta_t = db_offset - query_offset for matching hashes."""
     matches = {}  # song_name -> {delta: count}
-    for hash_val, q_t_offset in query_hashes:
-        for db_song, db_t_offset in db.get(hash_val, []):
-            delta_t = db_t_offset - q_t_offset
-            hist = matches.setdefault(db_song, {})
-            hist[delta_t] = hist.get(delta_t, 0) + 1
+    
+    # Check if we are using the new NumPy-based database
+    if isinstance(db, dict) and 'keys' in db and 'values' in db:
+        keys_arr = db['keys']
+        values_arr = db['values']
+        song_list = db['songs']
+        
+        for hash_val, q_t_offset in query_hashes:
+            try:
+                # Convert string key "f1_f2_dt" to packed 32-bit integer
+                f1, f2, dt = map(int, hash_val.split('_'))
+                hash_int = (f1 & 0x3FF) | ((f2 & 0x3FF) << 10) | ((dt & 0xFFF) << 20)
+            except ValueError:
+                continue
+                
+            left = np.searchsorted(keys_arr, hash_int, side='left')
+            right = np.searchsorted(keys_arr, hash_int, side='right')
+            
+            for packed_match in values_arr[left:right]:
+                # Unpack matches: song_id (6 bits) | offset (26 bits)
+                song_id = packed_match >> 26
+                db_t_offset = packed_match & 0x3FFFFFF
+                db_song = song_list[song_id]
+                
+                delta_t = db_t_offset - q_t_offset
+                hist = matches.setdefault(db_song, {})
+                hist[delta_t] = hist.get(delta_t, 0) + 1
+    else:
+        # Fallback to the original dictionary lookup
+        for hash_val, q_t_offset in query_hashes:
+            for db_song, db_t_offset in db.get(hash_val, []):
+                delta_t = db_t_offset - q_t_offset
+                hist = matches.setdefault(db_song, {})
+                hist[delta_t] = hist.get(delta_t, 0) + 1
+                
     return matches
+
 
 
 def match_query(query_path, db=None, use_pairs=True, generate_plots=True):
@@ -531,24 +562,68 @@ if os.path.exists(DB_GZ_FILE):
     try:
         with gzip.open(DB_GZ_FILE, "rb") as f:
             SONG_DB = pickle.load(f)
-        num_songs = len(set(song for list_val in SONG_DB.values() for song, _ in list_val))
-        index_status = f"Successfully loaded pre-indexed database from {DB_GZ_FILE} ({num_songs} songs)."
+        if isinstance(SONG_DB, dict) and 'keys' in SONG_DB and 'values' in SONG_DB:
+            num_songs = len(SONG_DB['songs'])
+            index_status = f"Successfully loaded pre-indexed database from {DB_GZ_FILE} ({num_songs} songs)."
+        else:
+            num_songs = len(set(song for list_val in SONG_DB.values() for song, _ in list_val))
+            index_status = f"Successfully loaded pre-indexed database from {DB_GZ_FILE} ({num_songs} songs)."
     except Exception as e:
         SONG_DB, index_status = index_database()
         try:
+            # Save in the new NumPy format to save space and memory
+            song_list = sorted(list(set(song for matches in SONG_DB.values() for song, _ in matches)))
+            song_to_id = {name: idx for idx, name in enumerate(song_list)}
+            flat_keys = []
+            flat_values = []
+            for hash_str, matches in SONG_DB.items():
+                f1, f2, dt = map(int, hash_str.split('_'))
+                hash_int = (f1 & 0x3FF) | ((f2 & 0x3FF) << 10) | ((dt & 0xFFF) << 20)
+                for song_name, offset in matches:
+                    song_id = song_to_id[song_name]
+                    packed = (song_id << 26) | (offset & 0x3FFFFFF)
+                    flat_keys.append(hash_int)
+                    flat_values.append(packed)
+            keys_arr = np.array(flat_keys, dtype=np.uint32)
+            values_arr = np.array(flat_values, dtype=np.uint32)
+            sort_idx = np.argsort(keys_arr)
+            keys_arr = keys_arr[sort_idx]
+            values_arr = values_arr[sort_idx]
+            db_data = {'songs': song_list, 'keys': keys_arr, 'values': values_arr}
             with gzip.open(DB_GZ_FILE, "wb") as f:
-                pickle.dump(SONG_DB, f)
+                pickle.dump(db_data, f, protocol=4)
+            SONG_DB = db_data
         except:
             pass
 else:
     SONG_DB, index_status = index_database()
     try:
+        song_list = sorted(list(set(song for matches in SONG_DB.values() for song, _ in matches)))
+        song_to_id = {name: idx for idx, name in enumerate(song_list)}
+        flat_keys = []
+        flat_values = []
+        for hash_str, matches in SONG_DB.items():
+            f1, f2, dt = map(int, hash_str.split('_'))
+            hash_int = (f1 & 0x3FF) | ((f2 & 0x3FF) << 10) | ((dt & 0xFFF) << 20)
+            for song_name, offset in matches:
+                song_id = song_to_id[song_name]
+                packed = (song_id << 26) | (offset & 0x3FFFFFF)
+                flat_keys.append(hash_int)
+                flat_values.append(packed)
+        keys_arr = np.array(flat_keys, dtype=np.uint32)
+        values_arr = np.array(flat_values, dtype=np.uint32)
+        sort_idx = np.argsort(keys_arr)
+        keys_arr = keys_arr[sort_idx]
+        values_arr = values_arr[sort_idx]
+        db_data = {'songs': song_list, 'keys': keys_arr, 'values': values_arr}
         with gzip.open(DB_GZ_FILE, "wb") as f:
-            pickle.dump(SONG_DB, f)
+            pickle.dump(db_data, f, protocol=4)
+        SONG_DB = db_data
     except:
         pass
 
 print(index_status)
+
 
 
 
