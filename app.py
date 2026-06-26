@@ -308,7 +308,8 @@ def match_query(query_path, db=None, use_pairs=True, generate_plots=True):
 
     if not matches:
         if generate_plots:
-            empty_fig = plt.figure()
+            from matplotlib.figure import Figure
+            empty_fig = Figure()
             return "No Match Found", 0, empty_fig, empty_fig, empty_fig
         return "No Match Found", 0, None, None, None
 
@@ -326,28 +327,33 @@ def match_query(query_path, db=None, use_pairs=True, generate_plots=True):
     if not generate_plots:
         return result_label, max_score, None, None, None
 
+    from matplotlib.figure import Figure
+
     # --- Plot 1: Spectrogram ---
-    fig1, ax1 = plt.subplots(figsize=(8, 4))
+    fig1 = Figure(figsize=(8, 4))
+    ax1 = fig1.subplots()
     ax1.pcolormesh(t_arr, f, S_db, shading='gouraud', cmap='magma',
                     vmin=S_db.max() - 80, vmax=S_db.max())
     ax1.set_title("1. Spectrogram")
     ax1.set_ylabel("Frequency (Hz)")
     ax1.set_xlabel("Time (s)")
     ax1.set_ylim([0, 5000])
-    plt.tight_layout()
+    fig1.tight_layout()
 
     # --- Plot 2: Constellation ---
-    fig2, ax2 = plt.subplots(figsize=(8, 4))
+    fig2 = Figure(figsize=(8, 4))
+    ax2 = fig2.subplots()
     ax2.scatter(t_arr[t_idx], f[f_idx], c='cyan', s=10, marker='x')
     ax2.set_facecolor('black')
     ax2.set_title(f"2. Constellation of Peaks ({len(f_idx)} peaks)")
     ax2.set_ylabel("Frequency (Hz)")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylim([0, 5000])
-    plt.tight_layout()
+    fig2.tight_layout()
 
     # --- Plot 3: Offset histogram for the best match ---
-    fig3, ax3 = plt.subplots(figsize=(8, 4))
+    fig3 = Figure(figsize=(8, 4))
+    ax3 = fig3.subplots()
     if best_hist:
         deltas = sorted(best_hist.keys())
         counts = [best_hist[d] for d in deltas]
@@ -356,9 +362,10 @@ def match_query(query_path, db=None, use_pairs=True, generate_plots=True):
                   f"(peak votes = {max_score})")
     ax3.set_xlabel("Time Offset Delta (frames)")
     ax3.set_ylabel("Vote Count")
-    plt.tight_layout()
+    fig3.tight_layout()
 
     return result_label, max_score, fig1, fig2, fig3
+
 
 
 # #########################################################################
