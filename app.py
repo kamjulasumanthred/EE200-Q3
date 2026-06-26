@@ -276,7 +276,7 @@ def _offset_histogram_scores(query_hashes, db):
                     db_t_offset = packed_match & 0x3FFFFFF
                     db_song = song_list[song_id]
                     
-                    delta_t = db_t_offset - q_t_offset
+                    delta_t = int(db_t_offset) - int(q_t_offset)
                     hist = matches.setdefault(db_song, {})
                     hist[delta_t] = hist.get(delta_t, 0) + 1
     else:
